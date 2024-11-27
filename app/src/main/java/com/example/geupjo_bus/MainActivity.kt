@@ -57,7 +57,7 @@ class MainActivity : ComponentActivity() {
                                         Text("메뉴")
                                     }
                                 },
-                                colors = TopAppBarDefaults.smallTopAppBarColors(
+                                colors = TopAppBarDefaults.largeTopAppBarColors(
                                     containerColor = MaterialTheme.colorScheme.primary
                                 )
                             )
@@ -74,7 +74,6 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.padding(innerPadding),
                                     onBackClick = { currentScreen = "home" },
                                     apiKey = "cvmPJ15BcYEn%2FRGNukBqLTRlCXkpITZSc6bWE7tWXdBSgY%2FeN%2BvzxH%2FROLnXu%2BThzVwBc09xoXfTyckHj1IJdg%3D%3D",
-
                                     onBusStopClick = { busStopName ->
                                         // 버스 정류장 클릭 시 수행할 동작
                                         Log.d("MainActivity", "Selected bus stop: $busStopName")
@@ -88,7 +87,6 @@ class MainActivity : ComponentActivity() {
                                 "map" -> MapScreen( // 새로 추가된 맵 화면
                                     onBackClick = { currentScreen = "home" }
                                 )
-
                             }
                         }
                     )
@@ -131,29 +129,25 @@ fun BusAppContent(
     var busStops by remember { mutableStateOf<List<BusStop>>(emptyList()) }
     var latitude by remember { mutableStateOf<Double?>(null) }
     var longitude by remember { mutableStateOf<Double?>(null) }
-
     var selectedBusStop by remember { mutableStateOf<BusStop?>(null) }
     var busArrivalInfo by remember { mutableStateOf<List<BusArrivalItem>>(emptyList()) }
     var showDialog by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
 
+
     val fusedLocationClient: FusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(context)
     val locationPermissionState = rememberPermissionState(permission = Manifest.permission.ACCESS_FINE_LOCATION)
 
-    // 현재 위치 가져오기 로직
     LaunchedEffect(Unit) {
         if (locationPermissionState.status.isGranted) {
             getCurrentLocation(context, fusedLocationClient) { lat, lng ->
                 latitude = lat
                 longitude = lng
-                // 주변 정류장 정보 가져오기
                 coroutineScope.launch {
                     try {
-                        // 서비스 키를 URL 디코딩하여 변수에 저장
                         val encodedKey = "cvmPJ15BcYEn%2FRGNukBqLTRlCXkpITZSc6bWE7tWXdBSgY%2FeN%2BvzxH%2FROLnXu%2BThzVwBc09xoXfTyckHj1IJdg%3D%3D"
                         val apiKey = URLDecoder.decode(encodedKey, "UTF-8")
 
-                        // API 호출
                         val response = BusApiClient.apiService.getNearbyBusStops(
                             apiKey = apiKey,
                             latitude = latitude!!,
@@ -324,13 +318,15 @@ fun BusAppContent(
 
 }
 
+
 @Composable
-fun NearbyBusStop(busStopName: String, distance: String, onClick: () -> Job) {
+fun NearbyBusStop(busStopName: String, distance: String, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(8.dp)
             .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable (onClick = onClick)
             .padding(16.dp)
     ) {
         Text(text = busStopName, style = MaterialTheme.typography.titleMedium)
@@ -396,7 +392,7 @@ fun DrawerContent(onDismiss: () -> Unit, onMenuItemClick: (String) -> Unit) {
 
         DrawerMenuItem(label = "홈", onClick = { onMenuItemClick("home") })
         DrawerMenuItem(label = "정류장 검색", onClick = { onMenuItemClick("search") })
-        DrawerMenuItem(label = "경로 검색", onClick = { onMenuItemClick("route") })
+        DrawerMenuItem(label = "경로 검색", onClick = { onMenuItemClick("route") }) // 경로 검색 추가
         DrawerMenuItem(label = "맵", onClick = { onMenuItemClick("map") })
     }
 }
@@ -424,6 +420,7 @@ fun PreviewBusAppContent() {
         BusAppContent(onSearchClick = {}, onRouteSearchClick = {})
     }
 }
+
 @Composable
 fun MapScreen(onBackClick: () -> Unit) {
     Column(
