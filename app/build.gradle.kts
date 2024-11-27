@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.example.geupjo_bus"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.example.geupjo_bus"
@@ -59,18 +59,25 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
-    implementation("com.squareup.retrofit2:retrofit:2.9.0")
-    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
-    implementation ("com.google.accompanist:accompanist-permissions:0.26.2-beta")
-    implementation ("com.google.android.gms:play-services-location:21.0.1")
-    implementation ("com.squareup.retrofit2:retrofit:2.9.0")
-    implementation ("com.squareup.retrofit2:converter-simplexml:2.9.0" ) // Simple XML Converter 추가
+    implementation("com.squareup.retrofit2:retrofit:2.11.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.11.0")
+    implementation ("com.google.accompanist:accompanist-permissions:0.36.0")
+    implementation ("com.google.android.gms:play-services-location:21.3.0")
+    implementation ("com.squareup.retrofit2:retrofit:2.11.0")
+    implementation ("com.squareup.retrofit2:converter-simplexml:2.11.0") // Simple XML Converter 추가
     implementation ("org.simpleframework:simple-xml:2.7.1") // Simple XML Framework 추가
-    implementation ("com.squareup.okhttp3:logging-interceptor:5.0.0-alpha.3")  // 버전은 상황에 따라 다를 수 있음
-    implementation ("com.google.android.gms:play-services-maps:18.0.0")
+    implementation ("com.squareup.okhttp3:logging-interceptor:5.0.0-alpha.14")  // 버전은 상황에 따라 다를 수 있음
+    implementation ("com.google.android.gms:play-services-maps:19.0.0")
+    implementation ("com.squareup.retrofit2:retrofit:2.9.0")
+    implementation ("com.squareup.retrofit2:converter-gson:2.9.0")
+
+    implementation ("org.json:json:20210307")
+
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.coordinatorlayout)
     implementation(libs.material)
+
+    implementation ("androidx.compose.material3:material3:<latest_version>")
 
 
     testImplementation(libs.junit)
