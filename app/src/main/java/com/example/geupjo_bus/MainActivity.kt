@@ -5,6 +5,7 @@ import androidx.compose.ui.Alignment
 
 import java.net.URLDecoder
 import android.Manifest
+import android.app.Activity
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -34,6 +35,29 @@ import android.util.Log
 import kotlinx.coroutines.launch
 import com.example.geupjo_bus.ui.MapScreen
 import kotlinx.coroutines.Job
+import kotlin.math.*
+import android.content.Context
+import android.content.SharedPreferences
+import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.os.Build
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import android.content.Intent
+import androidx.core.content.ContextCompat
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class) // Accompanist 경고 처리
 class MainActivity : ComponentActivity() {
@@ -58,6 +82,9 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 colors = TopAppBarDefaults.largeTopAppBarColors(
+                                    // largeTopAppBarColors 여기를 smallTopAppBarColors 로 변경해야할듯
+
+
                                     containerColor = MaterialTheme.colorScheme.primary
                                 )
                             )
@@ -77,7 +104,6 @@ class MainActivity : ComponentActivity() {
                                     onBusStopClick = { busStopName ->
                                         // 버스 정류장 클릭 시 수행할 동작
                                         Log.d("MainActivity", "Selected bus stop: $busStopName")
-                                        // 예: 특정 버스 정류장 도착 정보 화면으로 이동하거나 관련 동작 수행
                                     }
                                 )
                                 "route" -> RouteSearchScreen(
@@ -85,6 +111,9 @@ class MainActivity : ComponentActivity() {
                                     onBackClick = { currentScreen = "home" } // 홈 화면으로 돌아가기
                                 )
                                 "map" -> MapScreen( // 새로 추가된 맵 화면
+                                    onBackClick = { currentScreen = "home" }
+                                )
+                                "manbok" -> ManbokScreen( // 만보기 화면 추가
                                     onBackClick = { currentScreen = "home" }
                                 )
                             }
@@ -187,6 +216,10 @@ fun BusAppContent(
                 NearbyBusStop(
                     busStopName = busStop.nodeName ?: "알 수 없음",
                     distance = busStop.nodeNumber ?: "알 수 없음",
+                    currentlat = latitude ?: "알 수 없음".toDouble(),
+                    currentlong = longitude ?: "알 수 없음".toDouble(),
+                    busStoplati = busStop.latitude ?: "알 수 없음".toDouble() ,
+                    busStoplong = busStop.longitude?: "알 수 없음".toDouble(),
                     onClick = {
                         selectedBusStop = busStop
                         coroutineScope.launch {
@@ -320,7 +353,7 @@ fun BusAppContent(
 
 
 @Composable
-fun NearbyBusStop(busStopName: String, distance: String, onClick: () -> Unit) {
+fun NearbyBusStop(busStopName: String, distance: String, currentlat: Double, currentlong: Double, busStoplati: Double, busStoplong: Double, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -331,6 +364,8 @@ fun NearbyBusStop(busStopName: String, distance: String, onClick: () -> Unit) {
     ) {
         Text(text = busStopName, style = MaterialTheme.typography.titleMedium)
         Text(text = distance, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        Text(text = "${getDistance(currentlat, currentlong, busStoplati, busStoplong).toInt()} m", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+
     }
 }
 
@@ -347,7 +382,16 @@ fun BusArrivalInfo(busNumber: String, arrivalTime: String) {
         Text(text = arrivalTime, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
     }
 }
-
+@Composable
+fun getDistance( currentlat: Double, currentlong: Double, busStoplati: Double, busStoplong: Double ) : Double {
+    val R = 6372.8*1000
+    val dLat = Math.toRadians(busStoplati - currentlat)
+    val dLon = Math.toRadians(busStoplong - currentlong)
+    val a = sin(dLat / 2).pow(2.0) + sin(dLon / 2).pow(2.0) * cos(Math.toRadians(currentlat)) * cos(Math.toRadians(busStoplati))
+    val c = 2 * asin(sqrt(a))
+    val distance = Math.round((R * c)).toDouble()
+    return distance
+}
 // 현재 위치를 가져오는 함수
 fun getCurrentLocation(
     context: android.content.Context,
@@ -394,9 +438,136 @@ fun DrawerContent(onDismiss: () -> Unit, onMenuItemClick: (String) -> Unit) {
         DrawerMenuItem(label = "정류장 검색", onClick = { onMenuItemClick("search") })
         DrawerMenuItem(label = "경로 검색", onClick = { onMenuItemClick("route") }) // 경로 검색 추가
         DrawerMenuItem(label = "맵", onClick = { onMenuItemClick("map") })
+        DrawerMenuItem(label = "만보기", onClick = { onMenuItemClick("manbok") })
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ManbokScreen(onBackClick: () -> Unit) {
+    val context = LocalContext.current
+
+    // SharedPreferences에서 걸음 수 불러오기
+    var stepCount by remember { mutableStateOf(loadStepCount(context)) }
+
+    val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+    val stepSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR) // 걸음 감지 센서
+
+    // 센서가 없다면 알림
+    if (stepSensor == null) {
+        Log.d("ManbokScreen", "Step sensor not available.")
+    }
+
+    // 걸음 수 감지 리스너 설정
+    val stepCountListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent?) {
+            if (event != null && event.sensor.type == Sensor.TYPE_STEP_DETECTOR) {
+                // 걸음 감지 시 카운트 증가
+                if (event.values.isNotEmpty()) {
+                    stepCount += 1
+                    saveStepCount(context, stepCount) // SharedPreferences에 걸음 수 저장
+                }
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+            // 센서의 정확도가 변경되었을 때 처리할 코드 (보통은 사용하지 않아도 됨)
+        }
+    }
+
+    // 센서 리스너 등록
+    LaunchedEffect(Unit) {
+        if (stepSensor != null) {
+            sensorManager.registerListener(
+                stepCountListener,
+                stepSensor,
+                SensorManager.SENSOR_DELAY_UI
+            )
+        }
+    }
+
+    // 권한 요청 코드 추가
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACTIVITY_RECOGNITION
+            ) != PackageManager.PERMISSION_GRANTED) {
+            // 권한 요청
+            ActivityCompat.requestPermissions(
+                context as Activity,
+                arrayOf(Manifest.permission.ACTIVITY_RECOGNITION),
+                1
+            )
+        } else {
+            // 권한이 이미 있다면 서비스 시작
+            val stepCountServiceIntent = Intent(context, StepCountService::class.java)
+            ContextCompat.startForegroundService(context, stepCountServiceIntent)
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // 상단 바
+        TopAppBar(
+            title = { Text("만보기 화면") },
+            modifier = Modifier.align(Alignment.TopCenter) // 화면 상단에 배치
+        )
+
+        // 중앙에 내용 배치
+        Column(
+            modifier = Modifier.align(Alignment.Center), // 중앙에 배치
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // 걸음 수 표시
+            Text(
+                text = "걸음 수: $stepCount",
+                style = TextStyle(fontSize = 24.sp, color = Color.Black) // sp 단위 사용
+            )
+            Spacer(modifier = Modifier.height(16.dp)) // 여백 추가
+
+            // 초기화 버튼 추가
+            Button(
+                onClick = {
+                    stepCount = 0  // 걸음 수 초기화
+                    saveStepCount(context, stepCount)  // 초기화된 걸음 수를 SharedPreferences에 저장
+                },
+                modifier = Modifier.padding(top = 16.dp) // 버튼 위에 여백 추가
+            ) {
+                Text("초기화")
+            }
+        }
+
+        // 뒤로 가기 버튼을 상단 바 아래에 배치
+        Button(
+            onClick = onBackClick,
+            modifier = Modifier
+                .align(Alignment.TopEnd) // 오른쪽 상단 배치
+                .padding(top = 72.dp, end = 16.dp) // 여백을 추가하여 아래로 내리기
+        ) {
+            Text("뒤로 가기")
+        }
+    }
+
+    // 화면이 종료될 때 센서 리스너를 해제하여 메모리 누수를 방지
+    DisposableEffect(Unit) {
+        onDispose {
+            sensorManager.unregisterListener(stepCountListener)
+        }
+    }
+}
+
+
+
+fun saveStepCount(context: Context, stepCount: Int) {
+    val sharedPreferences = context.getSharedPreferences("step_data", Context.MODE_PRIVATE)
+    val editor = sharedPreferences.edit()
+    editor.putInt("step_count", stepCount)
+    editor.apply()
+}
+
+fun loadStepCount(context: Context): Int {
+    val sharedPreferences = context.getSharedPreferences("step_data", Context.MODE_PRIVATE)
+    return sharedPreferences.getInt("step_count", 0) // 기본값 0
+}
 @Composable
 fun DrawerMenuItem(label: String, onClick: () -> Unit) {
     Column(
