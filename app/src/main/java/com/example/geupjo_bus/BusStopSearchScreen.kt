@@ -1,12 +1,13 @@
 package com.example.geupjo_bus
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
-import android.location.Location
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,21 +18,26 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -43,11 +49,21 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import com.example.geupjo_bus.api.BusApiClient
+import com.example.geupjo_bus.api.BusArrivalItem
 import com.example.geupjo_bus.api.BusStopItem
 import com.example.geupjo_bus.ui.theme.Geupjo_BusTheme
+import com.example.geupjo_bus.ui.theme.rememberMapViewWithLifecycle
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.GoogleMap
+import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.MarkerOptions
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.net.URLDecoder
 
@@ -59,41 +75,35 @@ fun BusStopSearchScreen(
     apiKey: String,
     onBusStopClick: (String) -> Unit
 ) {
-    var searchQuery by remember { mutableStateOf(TextFieldValue("")) }
-    var searchResults by remember { mutableStateOf(listOf<BusStopItem>()) }
-    var showDialog by remember { mutableStateOf(false) }
-    var selectedBusStopName by remember { mutableStateOf("") }
-    var selectedBusStopId by remember { mutableStateOf("") }
-    var busRouteInfo by remember { mutableStateOf("경유 노선 정보를 로드 중입니다...") }
+    var searchQuery by remember { mutableStateOf(TextFieldValue("") )}
+    var busStops by remember { mutableStateOf<List<BusStopItem>>(emptyList()) }
+    val favoriteBusStops = remember { mutableStateListOf<BusStopItem>() }
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-
-    // 위도와 경도 상태 저장
+    var selectedBusStop by remember { mutableStateOf<BusStopItem?>(null) }
+    var busArrivalInfo by remember { mutableStateOf<List<BusArrivalItem>>(emptyList()) }
+    var showDialog by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
     var latitude by remember { mutableStateOf<Double?>(null) }
     var longitude by remember { mutableStateOf<Double?>(null) }
 
-    // FusedLocationProviderClient를 통해 현재 위치를 가져오는 작업
-    val context = LocalContext.current
-    val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+    // 위치 서비스 클라이언트
+    val fusedLocationClient = remember {
+        LocationServices.getFusedLocationProviderClient(context)
+    }
 
-    // 위치 권한 요청
+    // Load favorites and get location on start
     LaunchedEffect(Unit) {
+        favoriteBusStops.addAll(loadFavorites(context))
         if (ActivityCompat.checkSelfPermission(
                 context,
                 Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED &&
-            ActivityCompat.checkSelfPermission(
-                context,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
+            ) == PackageManager.PERMISSION_GRANTED
         ) {
-            // 권한 요청 (UI로 위치 권한 요청 표시)
-        } else {
-            // 위치 정보 가져오기
-            fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
-                if (location != null) {
-                    latitude = location.latitude
-                    longitude = location.longitude
-                    // SharedPreferences나 다른 방법으로 위도/경도 저장 가능
+            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                location?.let {
+                    latitude = it.latitude
+                    longitude = it.longitude
                 }
             }
         }
@@ -104,8 +114,8 @@ fun BusStopSearchScreen(
             .fillMaxSize()
             .padding(16.dp)
             .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(rememberScrollState())
     ) {
-        // 뒤로가기 버튼
         Button(
             onClick = onBackClick,
             modifier = Modifier.align(Alignment.Start),
@@ -116,7 +126,6 @@ fun BusStopSearchScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 검색 제목
         Text(
             text = "정류장 검색",
             style = MaterialTheme.typography.headlineMedium,
@@ -124,14 +133,10 @@ fun BusStopSearchScreen(
             modifier = Modifier.padding(bottom = 8.dp)
         )
 
-        // 검색 입력 필드
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { newValue -> searchQuery = newValue },
             label = { Text("정류장 이름 입력") },
-            leadingIcon = {
-                Icon(Icons.Default.Search, contentDescription = "검색 아이콘")
-            },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 8.dp),
@@ -140,10 +145,27 @@ fun BusStopSearchScreen(
             keyboardActions = KeyboardActions(
                 onSearch = {
                     coroutineScope.launch {
-                        searchResults = searchBusStopsFromApi(searchQuery.text, apiKey)
+                        try {
+                            val decodedKey = URLDecoder.decode(apiKey, "UTF-8")
+                            val response = BusApiClient.apiService.searchBusStops(
+                                apiKey = decodedKey,
+                                cityCode = 38030,
+                                nodeNm = searchQuery.text
+                            )
+
+                            if (response.isSuccessful) {
+                                val responseBody = response.body()
+                                busStops = responseBody?.body?.items?.itemList?.take(40) ?: emptyList()
+                            } else {
+                                Log.e("API Error", "API 호출 실패 - 코드: ${response.code()}, 메시지: ${response.message()}")
+                            }
+                        } catch (e: Exception) {
+                            Log.e("API Exception", "API 호출 오류: ${e.message}")
+                        }
                     }
                 }
             ),
+            //이 부분이 다른사람과 다를거임
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                 unfocusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -152,165 +174,271 @@ fun BusStopSearchScreen(
             )
         )
 
-
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 검색 결과 표시
-        if (searchResults.isNotEmpty()) {
+        if (favoriteBusStops.isNotEmpty()) {
             Text(
-                text = "검색 결과:",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.secondary
+                text = "즐겨찾기 정류장",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(vertical = 8.dp)
             )
-            Spacer(modifier = Modifier.height(8.dp))
 
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                searchResults.forEach { result ->
-                    latitude?.let {
-                        longitude?.let { it1 ->
-                            BusStopSearchResultItem(
-                                busStopName = result.nodeName ?: "알 수 없음",
-                                currentlati = it,
-                                currentlong = it1,
-                                nodeLati = result.nodeLati ?: "알 수 없음".toDouble(),
-                                nodeLong = result.nodeLong ?: "알 수 없음".toDouble(),
-                                onClick = {
-                                    val currentBusStopId = result.nodeId ?: ""
-                                    selectedBusStopName = result.nodeName ?: "알 수 없음"
-                                    showDialog = true
-                                    coroutineScope.launch {
-                                        showDialog = false // Dialog를 닫아서 상태를 초기화
-                                        busRouteInfo = "경유 노선 정보를 로드 중입니다..."
-                                        busRouteInfo = fetchBusRoutesByStop(currentBusStopId, apiKey)
-                                        showDialog = true // Dialog를 다시 열어서 업데이트된 값을 렌더링
-                                    }
-                                    onBusStopClick(result.nodeName ?: "알 수 없음")
-                                }
-                            )
+            favoriteBusStops.forEach { busStop ->
+                BusStopSearchResultItem(
+                    busStopName = busStop.nodeName ?: "알 수 없음",
+                    onClick = {
+                        selectedBusStop = busStop
+                        coroutineScope.launch {
+                            fetchBusArrivalInfo(busStop, apiKey, this) { arrivals ->
+                                busArrivalInfo = arrivals
+                                showDialog = true
+                            }
                         }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
+                    },
+                    isFavorite = true,
+                    onFavoriteClick = { toggleFavorite(busStop, favoriteBusStops, context) }
+                )
             }
-        } else {
-            // 결과 없음 텍스트
+        }
+
+        if (busStops.isNotEmpty()) {
             Text(
-                text = "검색 결과가 없습니다.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
+                text = "검색 결과",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(vertical = 8.dp)
             )
+
+            busStops.forEach { busStop ->
+                BusStopSearchResultItem(
+                    busStopName = busStop.nodeName ?: "알 수 없음",
+                    onClick = {
+                        selectedBusStop = busStop
+                        coroutineScope.launch {
+                            fetchBusArrivalInfo(busStop, apiKey, this) { arrivals ->
+                                busArrivalInfo = arrivals
+                                showDialog = true
+                            }
+                        }
+                    },
+                    isFavorite = favoriteBusStops.any { it.nodeId == busStop.nodeId },
+                    onFavoriteClick = { toggleFavorite(busStop, favoriteBusStops, context) }
+                )
+            }
         }
     }
 
-    // AlertDialog
-    if (showDialog) {
+    if (showDialog && selectedBusStop != null) {
         AlertDialog(
             onDismissRequest = { showDialog = false },
             title = {
                 Text(
-                    text = selectedBusStopName,
-                    style = MaterialTheme.typography.titleLarge,
+                    text = "버스 도착 정보: ${selectedBusStop?.nodeName}",
+                    style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
             },
             text = {
-                Text(
-                    text = busRouteInfo,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(8.dp)
-                )
-            },
-            confirmButton = {
-                Button(onClick = { showDialog = false }) {
-                    Text("확인")
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
+                ) {
+                    // 지도 표시
+                    val mapView = rememberMapViewWithLifecycle(context)
+                    var googleMap by remember { mutableStateOf<GoogleMap?>(null) }
+                    AndroidView(
+                        factory = { mapView },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                    ) { map ->
+                        map.getMapAsync { gMap ->
+                            googleMap = gMap
+                            googleMap?.clear()
+
+                            // Latitude, Longitude 값 처리
+                            val busStopLat =
+                                selectedBusStop?.nodeLati?.toString()?.toDoubleOrNull() ?: latitude
+                                ?: 0.0
+                            val busStopLong =
+                                selectedBusStop?.nodeLong?.toString()?.toDoubleOrNull()
+                                    ?: longitude ?: 0.0
+
+                            // LatLng 객체 생성
+                            val busStopLocation = LatLng(busStopLat, busStopLong)
+
+                            // 마커 추가
+                            googleMap?.addMarker(
+                                MarkerOptions()
+                                    .position(busStopLocation)
+                                    .title(selectedBusStop?.nodeName) // 마커에 타이틀 추가
+                            )
+
+                            // 지도 카메라를 마커가 있는 위치로 이동
+                            googleMap?.moveCamera(
+                                CameraUpdateFactory.newLatLngZoom(
+                                    busStopLocation,
+                                    17f
+                                )
+                            )
+                        }
+                    }
+
+                    // 도착 버스 정보 표시
+                    when {
+                        busArrivalInfo.isEmpty() && !isLoading -> {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
+                            ) {
+                                Text(
+                                    text = "도착 버스 정보가 없습니다.",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+
+                        isLoading -> {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                CircularProgressIndicator(color = MaterialTheme.colorScheme.secondary)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("버스 도착 정보를 불러오는 중입니다...")
+                            }
+                        }
+
+                        else -> {
+                            // 도착 버스 정보 카드 목록
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp)
+                                    .verticalScroll(rememberScrollState()) // 스크롤 가능하도록 설정
+                            ) {
+                                busArrivalInfo.forEach { arrival ->
+                                    val arrivalMinutes = (arrival.arrTime ?: 0) / 60
+                                    val remainingStations = arrival.arrPrevStationCnt ?: 0
+
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        shape = MaterialTheme.shapes.medium,
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(16.dp)
+                                        ) {
+                                            Text(
+                                                text = "버스 번호: ${arrival.routeNo}",
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "예상 도착 시간: ${arrivalMinutes}분 (${remainingStations}개 정류장)",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             },
-            containerColor = MaterialTheme.colorScheme.surface,
-            shape = MaterialTheme.shapes.large
+            confirmButton = {
+                TextButton(onClick = { showDialog = false }) {
+                    Text("확인", color = MaterialTheme.colorScheme.primary)
+                }
+            }
         )
     }
 }
 
-
 @Composable
-fun BusStopSearchResultItem(busStopName: String, currentlati: Double, currentlong: Double, nodeLati: Double, nodeLong: Double, onClick: () -> Unit) {
-    Card(
+fun BusStopSearchResultItem(
+    busStopName: String,
+    onClick: () -> Unit,
+    isFavorite: Boolean,
+    onFavoriteClick: () -> Unit
+) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(8.dp),
-        elevation = CardDefaults.elevatedCardElevation(),
-        colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surface)
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = busStopName,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f)
         )
-        Text(
 
-            text = "${getDistance(currentlati, currentlong, nodeLati, nodeLong).toInt()}m",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        IconButton(onClick = onFavoriteClick) {
+            Icon(
+                imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                contentDescription = null,
+                tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
+        }
     }
 }
 
+fun toggleFavorite(busStop: BusStopItem, favoriteBusStops: MutableList<BusStopItem>, context: Context) {
+    if (favoriteBusStops.any { it.nodeId == busStop.nodeId }) {
+        favoriteBusStops.removeAll { it.nodeId == busStop.nodeId }
+    } else {
+        favoriteBusStops.add(busStop)
+    }
+    saveFavorites(context, favoriteBusStops)
+}
 
-suspend fun searchBusStopsFromApi(query: String, apiKey: String): List<BusStopItem> {
-    return try {
+fun saveFavorites(context: Context, favorites: List<BusStopItem>) {
+    val sharedPreferences = context.getSharedPreferences("BusAppPrefs", Context.MODE_PRIVATE)
+    val editor = sharedPreferences.edit()
+    val json = Gson().toJson(favorites)
+    editor.putString("favoriteBusStops", json)
+    editor.apply()
+}
+
+fun loadFavorites(context: Context): List<BusStopItem> {
+    val sharedPreferences = context.getSharedPreferences("BusAppPrefs", Context.MODE_PRIVATE)
+    val json = sharedPreferences.getString("favoriteBusStops", null) ?: return emptyList()
+    val type = object : TypeToken<List<BusStopItem>>() {}.type
+    return Gson().fromJson(json, type)
+}
+
+suspend fun fetchBusArrivalInfo(busStop: BusStopItem, apiKey: String, coroutineScope: CoroutineScope, onResult: (List<BusArrivalItem>) -> Unit) {
+    try {
         val decodedKey = URLDecoder.decode(apiKey, "UTF-8")
-        val response = BusApiClient.apiService.searchBusStops(
+        val response = BusApiClient.apiService.getBusArrivalInfo(
             apiKey = decodedKey,
             cityCode = 38030,
-            nodeNm = query
+            nodeId = busStop.nodeId!!
         )
 
         if (response.isSuccessful) {
-            response.body()?.body?.items?.itemList ?: emptyList()
+            onResult(response.body()?.body?.items?.itemList ?: emptyList())
         } else {
-            Log.e("API Error", "API 호출 실패 - 코드: ${response.code()}, 메시지: ${response.message()}")
-            emptyList()
+            Log.e("API Error", "도착 정보 호출 실패: ${response.code()}, ${response.message()}")
+            onResult(emptyList())
         }
     } catch (e: Exception) {
-        Log.e("API Exception", "API 호출 오류: ${e.message}")
-        emptyList()
+        Log.e("API Exception", "도착 정보 로드 실패: ${e.message}")
+        onResult(emptyList())
     }
 }
-
-suspend fun fetchBusRoutesByStop(busStopId: String, apiKey: String): String {
-    return try {
-        Log.d("fetchBusRoutesByStop", "전달된 BusStopId: $busStopId")
-        val decodedKey = URLDecoder.decode(apiKey, "UTF-8")
-        val response = BusApiClient.apiService.getBusRoutesByStop(
-            apiKey = decodedKey,
-            cityCode = 38030,
-            nodeId = busStopId,  // 'nodeId'를 Retrofit 인터페이스에 맞게 전달
-            numOfRows = 10,      // 필요한 요청 수
-            pageNo = 1           // 페이지 번호
-        )
-
-        // 요청 URL 확인
-        Log.d("Retrofit URL", "Final URL: ${response.raw().request.url}")
-
-        if (response.isSuccessful) {
-            response.body()?.body?.items?.itemList?.joinToString("\n") { item ->
-                val routeNo = item.routeNo ?: "알 수 없음"
-                val endNodeName = item.endNodeName ?: "알 수 없음"
-                "$routeNo 번 버스 - ($endNodeName 방향)"
-            } ?: "해당 정류장의 경유 노선 정보가 없습니다."
-        } else {
-            Log.e("API Error", "Failed with Code: ${response.code()}, Message: ${response.message()}")
-            "경유 노선 정보를 가져오는 데 실패했습니다."
-        }
-    } catch (e: Exception) {
-        Log.e("API Exception", "오류 발생: ${e.message}")
-        "경유 노선 정보를 가져오는 중 오류가 발생했습니다."
-    }
-}
-
 
 @Preview(showBackground = true)
 @Composable
@@ -319,9 +447,7 @@ fun PreviewBusStopSearchScreen() {
         BusStopSearchScreen(
             onBackClick = {},
             apiKey = "DUMMY_API_KEY",
-            onBusStopClick = { busStopName ->
-                Log.d("Preview", "Clicked on bus stop: $busStopName")
-            }
+            onBusStopClick = {}
         )
     }
 }
