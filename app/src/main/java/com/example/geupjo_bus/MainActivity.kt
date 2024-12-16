@@ -427,7 +427,7 @@ fun BusAppContent(
 
 }
 
-// GoogleMapView 추가했음(12/5) 
+// GoogleMapView 추가했음(12/5)
 @Composable
 fun GoogleMapView(
     latitude: Double,
@@ -454,27 +454,32 @@ fun GoogleMapView(
             title = "현재 위치",
             snippet = "여기가 현재 위치입니다."
         )
-        var selectedBusStop by remember { mutableStateOf<BusStop?>(null) }
-        // 정류장 마커
-        busStops.forEach { busStop ->
-            val lat = busStop.latitude
-            val lng = busStop.longitude
 
-            if (lat != null && lng != null) {
-                Marker(
-                    state = rememberMarkerState(position = LatLng(lat, lng)),
-                    title = busStop.nodeName,
-                    icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE),
-                    onClick = {
-                        // 선택된 정류장 정보를 콜백으로 전달
-                        onClick(busStop)
-                        true // 클릭 이벤트 소비
-                    }
-                )
+        if (busStops.isNotEmpty()) {
+            // 정류장 마커
+            busStops.forEach { busStop ->
+                val lat = busStop.latitude
+                val lng = busStop.longitude
+
+                if (lat != null && lng != null) {
+                    Marker(
+                        state = rememberMarkerState(position = LatLng(lat, lng)),
+                        title = busStop.nodeName,
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE),
+                        onClick = {
+                            // 선택된 정류장 정보를 콜백으로 전달
+                            onClick(busStop)
+                            true // 클릭 이벤트 소비
+                        }
+                    )
+                }
             }
+        } else {
+            Log.d("GoogleMap", "주변에 표시할 정류장이 없습니다.")
         }
     }
 }
+
 
 
 
