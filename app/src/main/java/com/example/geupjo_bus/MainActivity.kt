@@ -24,6 +24,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,14 +35,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -107,7 +113,7 @@ class MainActivity : ComponentActivity() {
                 var drawerState by remember { mutableStateOf(false) }
                 var currentScreen by remember { mutableStateOf("home") } // 현재 화면 상태 관리
                 val scope = rememberCoroutineScope()
-
+                val context = LocalContext.current
                 Box(Modifier.fillMaxSize()) {
                     Scaffold(
                         topBar = {
@@ -146,11 +152,12 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.padding(innerPadding),
                                     onBackClick = { currentScreen = "home" } // 홈 화면으로 돌아가기
                                 )
-                                "map" -> MapScreen( // 새로 추가된 맵 화면
+                                "manbok" -> ManbokScreen( // 새로 추가된 맵 화면
                                     onBackClick = { currentScreen = "home" }
                                 )
-                                "manbok" -> ManbokScreen( // 만보기 화면 추가
-                                    onBackClick = { currentScreen = "home" }
+                                "alarm" -> AlarmScreen( // 알람 화면으로 이동
+                                    onBackClick = { currentScreen = "home" },
+                                    context = context // 여기에 context를 전달
                                 )
                             }
                         }
@@ -188,7 +195,7 @@ fun BusAppContent(
     onRouteSearchClick: () -> Unit
 ) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
+
 
     var busStops by remember { mutableStateOf<List<BusStop>>(emptyList()) }
     var latitude by remember { mutableStateOf<Double?>(null) }
@@ -200,6 +207,7 @@ fun BusAppContent(
     var busArrivalInfo by remember { mutableStateOf<List<BusArrivalItem>>(emptyList()) }
     var showDialog by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
+    val coroutineScope = rememberCoroutineScope()
     // GPS 위치 가져오기
     LaunchedEffect(Unit) {
         if (locationPermissionState.status.isGranted) {
@@ -383,9 +391,14 @@ fun BusAppContent(
                                         .padding(8.dp)
                                         .verticalScroll(rememberScrollState()) // 스크롤 가능하도록 설정
                                 ) {
+                                    var alarmBusArrivals by remember { mutableStateOf(loadAlarms(context)) }
+
                                     busArrivalInfo.forEach { arrival ->
-                                        val arrivalMinutes = arrival.arrTime?.div(60) ?: 0
+                                        val arrivalMinutes = (arrival.arrTime ?: 0) / 60
                                         val remainingStations = arrival.arrPrevStationCnt ?: 0
+
+                                        // 알람이 설정된 상태인지 확인
+                                        val isAlarmSet = alarmBusArrivals.any { it.routeNo == arrival.routeNo }
 
                                         Card(
                                             modifier = Modifier
@@ -397,17 +410,40 @@ fun BusAppContent(
                                             Column(
                                                 modifier = Modifier.padding(16.dp)
                                             ) {
-                                                Text(
-                                                    text = "버스 번호: ${arrival.routeNo}",
-                                                    style = MaterialTheme.typography.bodyLarge,
-                                                    color = MaterialTheme.colorScheme.primary
-                                                )
-                                                Spacer(modifier = Modifier.height(4.dp))
-                                                Text(
-                                                    text = "예상 도착 시간: ${arrivalMinutes}분 (${remainingStations}개 정류장)",
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
+                                                Row(
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Column(
+                                                        modifier = Modifier.weight(1f)
+                                                    ) {
+                                                        Text(
+                                                            text = "버스 번호: ${arrival.routeNo}",
+                                                            style = MaterialTheme.typography.bodyLarge,
+                                                            color = MaterialTheme.colorScheme.primary
+                                                        )
+                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                        Text(
+                                                            text = "예상 도착 시간: ${arrivalMinutes}분 (${remainingStations}개 정류장)",
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            color = MaterialTheme.colorScheme.onSurface
+                                                        )
+                                                    }
+
+                                                    // 알람 버튼을 누르면 알람 목록에 추가/제거하고 상태를 업데이트
+                                                    IconButton(onClick = {
+                                                        toggleAlarm(arrival, alarmBusArrivals.toMutableList(), context).also {
+                                                            // 상태 업데이트 후 UI 즉시 반영
+                                                            alarmBusArrivals = loadAlarms(context)
+                                                        }
+                                                    }) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Alarm,
+                                                            contentDescription = "알람 설정",
+                                                            tint = if (isAlarmSet) Color.Red else MaterialTheme.colorScheme.onSurface
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -481,8 +517,6 @@ fun GoogleMapView(
 }
 
 
-
-
 @Composable
 fun NearbyBusStop(busStopName: String, distance: String, currentlat: Double, currentlong: Double, busStoplati: Double, busStoplong: Double, onClick: () -> Unit) {
     Column(
@@ -525,7 +559,7 @@ fun getDistance( currentlat: Double, currentlong: Double, busStoplati: Double, b
 }
 // 현재 위치를 가져오는 함수
 fun getCurrentLocation(
-    context: Context,
+    context: android.content.Context,
     fusedLocationClient: FusedLocationProviderClient,
     onLocationRetrieved: (Double, Double) -> Unit
 ) {
@@ -573,6 +607,7 @@ fun DrawerContent(onDismiss: () -> Unit, onMenuItemClick: (String) -> Unit) {
         DrawerMenuItem(label = "정류장 검색", onClick = { onMenuItemClick("search") })
         DrawerMenuItem(label = "경로 검색", onClick = { onMenuItemClick("route") })
         DrawerMenuItem(label = "만보기", onClick = { onMenuItemClick("manbok") })
+        DrawerMenuItem(label = "알람", onClick = { onMenuItemClick("alarm") })
     }
 }
 
@@ -725,6 +760,143 @@ fun ManbokScreen(onBackClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AlarmScreen(onBackClick: () -> Unit, context: Context) {
+    // 상태로 알람 목록 관리
+    var alarmBusArrivals by remember { mutableStateOf(loadAlarms(context)) }
+
+    // 상단 바
+    Box(modifier = Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = { Text("알람 설정 화면") },
+            modifier = Modifier.align(Alignment.TopCenter) // 상단에 배치
+        )
+
+        // 뒤로 가기 버튼
+        Button(
+            onClick = onBackClick,
+            modifier = Modifier
+                .align(Alignment.TopEnd) // 오른쪽 상단 배치
+                .padding(top = 72.dp, end = 16.dp) // 여백을 추가하여 아래로 내리기
+        ) {
+            Text("뒤로 가기")
+        }
+        // 알람 설정된 버스들이 없다면 안내 메시지
+        if (alarmBusArrivals.isEmpty()) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center) // 중앙에 배치
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("설정된 알람이 없습니다.", style = MaterialTheme.typography.bodyLarge)
+            }
+        } else {
+            // 알람 설정된 버스 정보 리스트
+            LazyColumn(
+                modifier = Modifier.padding(top = 130.dp) // 상단바와 겹치지 않게 여백 추가
+            ) {
+
+
+                items(alarmBusArrivals) { arrival ->
+                    var busArrivalInfo by remember { mutableStateOf<List<BusArrivalItem>>(emptyList()) }
+                    val coroutineScope = rememberCoroutineScope()
+                    coroutineScope.launch {
+                        try {
+                            val apiKey = URLDecoder.decode(
+                                "cvmPJ15BcYEn%2FRGNukBqLTRlCXkpITZSc6bWE7tWXdBSgY%2FeN%2BvzxH%2FROLnXu%2BThzVwBc09xoXfTyckHj1IJdg%3D%3D",
+                                "UTF-8"
+                            )
+                            val response = BusApiClient.apiService.getBusArrivalInfo(
+                                apiKey = apiKey,
+                                cityCode = 38030, // 진주시 코드
+                                nodeId = arrival.nodeId!! // 선택된 정류장의 nodeId 사용
+                            )
+                            if (response.isSuccessful) {
+                                // 도착 정보를 arrTime(예상 도착 시간) 기준으로 정렬
+                                busArrivalInfo = response.body()?.body?.items?.itemList
+                                    ?.sortedBy {
+                                        it.arrTime ?: Int.MAX_VALUE
+                                    } // null은 가장 뒤로 이동
+                                    ?: emptyList()
+
+                                if (busArrivalInfo.isEmpty()) {
+                                    Log.d("Bus Info", "도착 버스 정보가 없습니다.")
+                                }
+                            } else {
+                                Log.e(
+                                    "API Error",
+                                    "도착 정보 호출 실패: ${response.code()}, ${response.message()}"
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.e("API Error", "도착 정보 로드 실패: ${e.message}")
+                        } finally {
+                        }
+                    }
+                    busArrivalInfo.forEach { arrivals ->
+                        if (arrival.routeNo == arrivals.routeNo){
+                            val arrivalMinutes = (arrivals.arrTime ?: 0) / 60
+                            val remainingStations = arrivals.arrPrevStationCnt ?: 0
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                shape = MaterialTheme.shapes.medium,
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp)
+                                ) {
+                                    Text(
+                                        text = "${arrivals.nodeName}",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = "버스 번호: ${arrivals.routeNo}",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "예상 도착 시간: ${arrivalMinutes}분 (${remainingStations}개 정류장)",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // 알람 해제 버튼
+                                    Button(
+                                        onClick = {
+                                            // 알람 해제 처리
+                                            val updatedList = alarmBusArrivals.toMutableList().apply {
+                                                // 알람을 제거
+                                                removeAll { it.nodeId == arrival.nodeId && it.routeNo == arrival.routeNo }
+                                            }
+
+                                            // 상태 업데이트 (UI 즉시 갱신)
+                                            alarmBusArrivals = updatedList
+
+                                            // SharedPreferences에도 변경된 알람 리스트 저장
+                                            saveAlarms(context, updatedList)
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("알람 해제")
+                                    }
+                                }
+                            }
+                        }
+
+                    }
+                }
+            }
+        }
+    }
+}
 
 
 fun saveStepCount(context: Context, stepCount: Int) {
