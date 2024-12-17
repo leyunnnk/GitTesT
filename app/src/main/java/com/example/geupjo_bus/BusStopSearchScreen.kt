@@ -1,47 +1,16 @@
 package com.example.geupjo_bus
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -49,23 +18,31 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.app.ActivityCompat
 import com.example.geupjo_bus.api.BusApiClient
-import com.example.geupjo_bus.api.BusArrivalItem
 import com.example.geupjo_bus.api.BusStopItem
+import com.example.geupjo_bus.api.BusArrivalItem
 import com.example.geupjo_bus.ui.theme.Geupjo_BusTheme
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
+import java.net.URLDecoder
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.ui.viewinterop.AndroidView
 import com.example.geupjo_bus.ui.theme.rememberMapViewWithLifecycle
-import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MarkerOptions
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
-import java.net.URLDecoder
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.ui.graphics.Color
+import androidx.core.app.ActivityCompat
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.FusedLocationProviderClient
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -165,7 +142,6 @@ fun BusStopSearchScreen(
                     }
                 }
             ),
-            //이 부분이 다른사람과 다를거임
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                 unfocusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -323,9 +299,14 @@ fun BusStopSearchScreen(
                                     .padding(8.dp)
                                     .verticalScroll(rememberScrollState()) // 스크롤 가능하도록 설정
                             ) {
+                                var alarmBusArrivals by remember { mutableStateOf(loadAlarms(context)) }
+
                                 busArrivalInfo.forEach { arrival ->
                                     val arrivalMinutes = (arrival.arrTime ?: 0) / 60
                                     val remainingStations = arrival.arrPrevStationCnt ?: 0
+
+                                    // 알람이 설정된 상태인지 확인
+                                    val isAlarmSet = alarmBusArrivals.any { it.routeNo == arrival.routeNo }
 
                                     Card(
                                         modifier = Modifier
@@ -337,17 +318,40 @@ fun BusStopSearchScreen(
                                         Column(
                                             modifier = Modifier.padding(16.dp)
                                         ) {
-                                            Text(
-                                                text = "버스 번호: ${arrival.routeNo}",
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = "예상 도착 시간: ${arrivalMinutes}분 (${remainingStations}개 정류장)",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
+                                            Row(
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Text(
+                                                        text = "버스 번호: ${arrival.routeNo}",
+                                                        style = MaterialTheme.typography.bodyLarge,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Text(
+                                                        text = "예상 도착 시간: ${arrivalMinutes}분 (${remainingStations}개 정류장)",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                }
+
+                                                // 알람 버튼을 누르면 알람 목록에 추가/제거하고 상태를 업데이트
+                                                IconButton(onClick = {
+                                                    toggleAlarm(arrival, alarmBusArrivals.toMutableList(), context).also {
+                                                        // 상태 업데이트 후 UI 즉시 반영
+                                                        alarmBusArrivals = loadAlarms(context)
+                                                    }
+                                                }) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Alarm,
+                                                        contentDescription = "알람 설정",
+                                                        tint = if (isAlarmSet) Color.Red else MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -418,6 +422,32 @@ fun loadFavorites(context: Context): List<BusStopItem> {
     val type = object : TypeToken<List<BusStopItem>>() {}.type
     return Gson().fromJson(json, type)
 }
+
+fun toggleAlarm(busArrival: BusArrivalItem, alarmBusArrivals: MutableList<BusArrivalItem>, context: Context) {
+    // 알람이 이미 등록된 경우 제거, 그렇지 않으면 추가
+    if (alarmBusArrivals.any { it.routeNo == busArrival.routeNo }) {
+        alarmBusArrivals.removeAll { it.routeNo == busArrival.routeNo }
+    } else {
+        alarmBusArrivals.add(busArrival)
+    }
+    saveAlarms(context, alarmBusArrivals)
+}
+
+fun saveAlarms(context: Context, alarms: List<BusArrivalItem>) {
+    val sharedPreferences = context.getSharedPreferences("BusAppPrefs", Context.MODE_PRIVATE)
+    val editor = sharedPreferences.edit()
+    val json = Gson().toJson(alarms)
+    editor.putString("alarmBusArrivals", json)
+    editor.apply()
+}
+
+fun loadAlarms(context: Context): List<BusArrivalItem> {
+    val sharedPreferences = context.getSharedPreferences("BusAppPrefs", Context.MODE_PRIVATE)
+    val json = sharedPreferences.getString("alarmBusArrivals", null) ?: return emptyList()
+    val type = object : TypeToken<List<BusArrivalItem>>() {}.type
+    return Gson().fromJson(json, type)
+}
+
 
 suspend fun fetchBusArrivalInfo(busStop: BusStopItem, apiKey: String, coroutineScope: CoroutineScope, onResult: (List<BusArrivalItem>) -> Unit) {
     try {
