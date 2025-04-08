@@ -1,48 +1,78 @@
 package com.example.geupjo_bus
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.example.geupjo_bus.api.BusApiClient
-import com.example.geupjo_bus.api.BusStopItem
-import com.example.geupjo_bus.api.BusArrivalItem
-import com.example.geupjo_bus.ui.theme.Geupjo_BusTheme
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.CoroutineScope
-import java.net.URLDecoder
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.ui.viewinterop.AndroidView
-import com.example.geupjo_bus.ui.theme.rememberMapViewWithLifecycle
+import androidx.core.app.ActivityCompat
+import com.example.geupjo_bus.api.BusApiClient
+import com.example.geupjo_bus.api.BusArrivalItem
+import com.example.geupjo_bus.api.BusStopItem
+import com.example.geupjo_bus.ui.rememberMapViewWithLifecycle
+import com.example.geupjo_bus.ui.theme.Geupjo_BusTheme
+import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MarkerOptions
-import android.Manifest
-import android.content.pm.PackageManager
-import androidx.compose.material.icons.filled.Alarm
-import androidx.compose.ui.graphics.Color
-import androidx.core.app.ActivityCompat
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import java.net.URLDecoder
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,6 +82,27 @@ fun BusStopSearchScreen(
     apiKey: String,
     onBusStopClick: (String) -> Unit
 ) {
+    val supportedCities = mapOf(
+        "진주시" to 38030,
+        "창원시" to 38010,
+        "통영시" to 38050,
+        "사천시" to 38060,
+        "김해시" to 38070,
+        "밀양시" to 38080,
+        "거제시" to 38090,
+        "양산시" to 38100,
+        "의령군" to 38310,
+        "함안군" to 38320,
+        "창녕군" to 38330,
+        "고성군" to 38340,
+        "남해군" to 38350,
+        "하동군" to 38360,
+        "산청군" to 38370,
+        "함양군" to 38380,
+        "거창군" to 38390,
+        "합천군" to 38400
+
+    )
     var searchQuery by remember { mutableStateOf(TextFieldValue("") )}
     var busStops by remember { mutableStateOf<List<BusStopItem>>(emptyList()) }
     val favoriteBusStops = remember { mutableStateListOf<BusStopItem>() }
@@ -64,10 +115,15 @@ fun BusStopSearchScreen(
     var latitude by remember { mutableStateOf<Double?>(null) }
     var longitude by remember { mutableStateOf<Double?>(null) }
 
+    var selectedCity by remember { mutableStateOf("진주시") }
+    var cityCode by remember { mutableIntStateOf(supportedCities[selectedCity] ?: 38030) }
+    var expanded by remember { mutableStateOf(false) }
     // 위치 서비스 클라이언트
     val fusedLocationClient = remember {
         LocationServices.getFusedLocationProviderClient(context)
     }
+
+
 
     // Load favorites and get location on start
     LaunchedEffect(Unit) {
@@ -101,6 +157,38 @@ fun BusStopSearchScreen(
             Text("뒤로 가기", color = MaterialTheme.colorScheme.onPrimary)
         }
 
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = !expanded }
+        ) {
+            OutlinedTextField(
+                value = selectedCity,
+                onValueChange = {},
+                readOnly = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .menuAnchor(),
+                label = { Text("도시 선택") }
+            )
+
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                supportedCities.keys.forEach { city ->
+                    DropdownMenuItem(
+                        text = { Text(text = city) },
+                        onClick = {
+                            selectedCity = city
+                            cityCode = supportedCities[city] ?: 38030
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
@@ -126,7 +214,7 @@ fun BusStopSearchScreen(
                             val decodedKey = URLDecoder.decode(apiKey, "UTF-8")
                             val response = BusApiClient.apiService.searchBusStops(
                                 apiKey = decodedKey,
-                                cityCode = 38030,
+                                cityCode = cityCode,
                                 nodeNm = searchQuery.text
                             )
 
@@ -166,7 +254,7 @@ fun BusStopSearchScreen(
                     onClick = {
                         selectedBusStop = busStop
                         coroutineScope.launch {
-                            fetchBusArrivalInfo(busStop, apiKey, this) { arrivals ->
+                            fetchBusArrivalInfo(busStop, apiKey, coroutineScope, cityCode) { arrivals -> // coroutineScope 전달
                                 busArrivalInfo = arrivals
                                 showDialog = true
                             }
@@ -192,7 +280,7 @@ fun BusStopSearchScreen(
                     onClick = {
                         selectedBusStop = busStop
                         coroutineScope.launch {
-                            fetchBusArrivalInfo(busStop, apiKey, this) { arrivals ->
+                            fetchBusArrivalInfo(busStop, apiKey, coroutineScope, cityCode) { arrivals -> // coroutineScope 전달
                                 busArrivalInfo = arrivals
                                 showDialog = true
                             }
@@ -306,7 +394,7 @@ fun BusStopSearchScreen(
                                     val remainingStations = arrival.arrPrevStationCnt ?: 0
 
                                     // 알람이 설정된 상태인지 확인
-                                    val isAlarmSet = alarmBusArrivals.any { it.routeNo == arrival.routeNo }
+                                    val isAlarmSet = alarmBusArrivals.any { it.nodeId == arrival.nodeId && it.routeNo == arrival.routeNo && it.routeId == arrival.routeId}
 
                                     Card(
                                         modifier = Modifier
@@ -423,38 +511,17 @@ fun loadFavorites(context: Context): List<BusStopItem> {
     return Gson().fromJson(json, type)
 }
 
-fun toggleAlarm(busArrival: BusArrivalItem, alarmBusArrivals: MutableList<BusArrivalItem>, context: Context) {
-    // 알람이 이미 등록된 경우 제거, 그렇지 않으면 추가
-    if (alarmBusArrivals.any { it.routeNo == busArrival.routeNo }) {
-        alarmBusArrivals.removeAll { it.routeNo == busArrival.routeNo }
-    } else {
-        alarmBusArrivals.add(busArrival)
-    }
-    saveAlarms(context, alarmBusArrivals)
-}
-
-fun saveAlarms(context: Context, alarms: List<BusArrivalItem>) {
-    val sharedPreferences = context.getSharedPreferences("BusAppPrefs", Context.MODE_PRIVATE)
-    val editor = sharedPreferences.edit()
-    val json = Gson().toJson(alarms)
-    editor.putString("alarmBusArrivals", json)
-    editor.apply()
-}
-
-fun loadAlarms(context: Context): List<BusArrivalItem> {
-    val sharedPreferences = context.getSharedPreferences("BusAppPrefs", Context.MODE_PRIVATE)
-    val json = sharedPreferences.getString("alarmBusArrivals", null) ?: return emptyList()
-    val type = object : TypeToken<List<BusArrivalItem>>() {}.type
-    return Gson().fromJson(json, type)
-}
 
 
-suspend fun fetchBusArrivalInfo(busStop: BusStopItem, apiKey: String, coroutineScope: CoroutineScope, onResult: (List<BusArrivalItem>) -> Unit) {
+
+
+
+suspend fun fetchBusArrivalInfo(busStop: BusStopItem, apiKey: String, coroutineScope: CoroutineScope, cityCode: Int, onResult: (List<BusArrivalItem>) -> Unit) {
     try {
         val decodedKey = URLDecoder.decode(apiKey, "UTF-8")
         val response = BusApiClient.apiService.getBusArrivalInfo(
             apiKey = decodedKey,
-            cityCode = 38030,
+            cityCode = cityCode,
             nodeId = busStop.nodeId!!
         )
 
