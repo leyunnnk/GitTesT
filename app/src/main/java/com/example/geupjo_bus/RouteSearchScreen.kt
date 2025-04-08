@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +37,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.geupjo_bus.ui.rememberMapViewWithLifecycle
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
@@ -62,15 +64,13 @@ fun RouteSearchScreen(
     modifier: Modifier = Modifier,
     onBackClick: () -> Unit = {}
 ) {
+    val viewModel: RouteSearchViewModel = viewModel()
+
     var departure by remember { mutableStateOf(TextFieldValue("")) }
     var destination by remember { mutableStateOf(TextFieldValue("")) }
-    var selectedMode by remember { mutableStateOf("transit") } // default: bus
-
-
-    var expanded by remember { mutableStateOf(false) }
+    var selectedMode by remember { mutableStateOf("transit") }
     var routeResults by remember { mutableStateOf(listOf<String>()) }
     var travelTime by remember { mutableStateOf("") }
-    var polylinePoints by remember { mutableStateOf<List<LatLng>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
     var currentLocation by remember { mutableStateOf<Location?>(null) }
     val departureMarker = remember { mutableStateOf<Marker?>(null) }
@@ -79,11 +79,10 @@ fun RouteSearchScreen(
 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-
-    val polylineColor = 0xFF6200EE.toInt()
-
     val mapView = rememberMapViewWithLifecycle(context)
     var googleMap by remember { mutableStateOf<GoogleMap?>(null) }
+
+    val recentSearches by viewModel.recentSearches.collectAsState()
 
     LaunchedEffect(Unit) {
         currentLocation = getCurrentLocation(context)
@@ -93,14 +92,10 @@ fun RouteSearchScreen(
         }
         mapView.getMapAsync { gMap ->
             googleMap = gMap
-            googleMap?.let { map ->
-                currentLocation?.let {
-                    val currentLatLng = LatLng(it.latitude, it.longitude)
-                    map.moveCamera(CameraUpdateFactory.newLatLngZoom(currentLatLng, 14f))
-                    departureMarker.value = map.addMarker(
-                        MarkerOptions().position(currentLatLng).title("출발지")
-                    )
-                }
+            currentLocation?.let {
+                val currentLatLng = LatLng(it.latitude, it.longitude)
+                gMap.moveCamera(CameraUpdateFactory.newLatLngZoom(currentLatLng, 14f))
+                departureMarker.value = gMap.addMarker(MarkerOptions().position(currentLatLng).title("출발지"))
             }
         }
     }
@@ -114,10 +109,6 @@ fun RouteSearchScreen(
         Button(onClick = onBackClick, modifier = Modifier.align(Alignment.Start)) {
             Text("뒤로 가기")
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -146,10 +137,11 @@ fun RouteSearchScreen(
                         val (results, polyline, duration) = fetchDirections(departure.text, destination.text, selectedMode)
                         routeResults = results
                         travelTime = duration
+                        viewModel.addRecentSearch(departure.text, destination.text)
                         updateMapWithDirections(
                             googleMap = googleMap,
                             polyline = polyline,
-                            polylineColor = polylineColor,
+                            polylineColor = 0xFF6200EE.toInt(),
                             currentPolyline = currentPolyline,
                             destinationMarker = destinationMarker,
                             departureMarker = departureMarker,
@@ -163,27 +155,25 @@ fun RouteSearchScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Button(
-            onClick = {
-                isSearching = true
-                coroutineScope.launch {
-                    val (results, polyline, duration) = fetchDirections(departure.text, destination.text, selectedMode)
-                    routeResults = results
-                    travelTime = duration
-                    updateMapWithDirections(
-                        googleMap = googleMap,
-                        polyline = polyline,
-                        polylineColor = polylineColor,
-                        currentPolyline = currentPolyline,
-                        destinationMarker = destinationMarker,
-                        departureMarker = departureMarker,
-                        currentLocation = currentLocation
-                    )
-                    isSearching = false
-                }
-            },
-            modifier = Modifier.align(Alignment.CenterHorizontally)
-        ) {
+        Button(onClick = {
+            isSearching = true
+            coroutineScope.launch {
+                val (results, polyline, duration) = fetchDirections(departure.text, destination.text, selectedMode)
+                routeResults = results
+                travelTime = duration
+                viewModel.addRecentSearch(departure.text, destination.text)
+                updateMapWithDirections(
+                    googleMap = googleMap,
+                    polyline = polyline,
+                    polylineColor = 0xFF6200EE.toInt(),
+                    currentPolyline = currentPolyline,
+                    destinationMarker = destinationMarker,
+                    departureMarker = departureMarker,
+                    currentLocation = currentLocation
+                )
+                isSearching = false
+            }
+        }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
             Text("경로 검색")
         }
 
@@ -197,13 +187,38 @@ fun RouteSearchScreen(
             Text("검색 결과:", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
             if (travelTime.isNotEmpty()) Text("총 이동시간: $travelTime", style = MaterialTheme.typography.bodyMedium)
-            routeResults.forEach { RouteSearchResultItem(it); Spacer(modifier = Modifier.height(8.dp)) }
-            AndroidView(factory = { mapView }, modifier = Modifier.fillMaxWidth().height(400.dp)) { it.getMapAsync { gMap -> googleMap = gMap; gMap.clear() } }
+            routeResults.forEach {
+                RouteSearchResultItem(it)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            AndroidView(factory = { mapView }, modifier = Modifier.fillMaxWidth().height(400.dp)) {
+                it.getMapAsync { gMap ->
+                    googleMap = gMap
+                    gMap.clear()
+                }
+            }
         } else if (!isSearching) {
             Text("검색 결과가 없습니다.", style = MaterialTheme.typography.bodyMedium)
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (recentSearches.isNotEmpty()) {
+            Text("최근 경로 검색:", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            recentSearches.forEach { (from, to) ->
+                Button(onClick = {
+                    departure = TextFieldValue(from)
+                    destination = TextFieldValue(to)
+                }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Text("$from → $to")
+                }
+            }
+        }
     }
 }
+
+
 
 
 fun updateMapWithDirections(
