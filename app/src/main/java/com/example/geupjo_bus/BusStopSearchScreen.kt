@@ -60,6 +60,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import com.example.geupjo_bus.api.BusApiClient
 import com.example.geupjo_bus.api.BusArrivalItem
+import com.example.geupjo_bus.api.BusRouteList
 import com.example.geupjo_bus.api.BusStopItem
 import com.example.geupjo_bus.ui.rememberMapViewWithLifecycle
 import com.example.geupjo_bus.ui.theme.Geupjo_BusTheme
@@ -114,6 +115,8 @@ fun BusStopSearchScreen(
     var isLoading by remember { mutableStateOf(false) }
     var latitude by remember { mutableStateOf<Double?>(null) }
     var longitude by remember { mutableStateOf<Double?>(null) }
+    var searchedCenter by remember { mutableStateOf<LatLng?>(null) }
+    var busStopList by remember { mutableStateOf<List<BusRouteList>>(emptyList()) }
 
     var selectedCity by remember { mutableStateOf("진주시") }
     var cityCode by remember { mutableIntStateOf(supportedCities[selectedCity] ?: 38030) }
@@ -395,13 +398,52 @@ fun BusStopSearchScreen(
 
                                     // 알람이 설정된 상태인지 확인
                                     val isAlarmSet = alarmBusArrivals.any { it.nodeId == arrival.nodeId && it.routeNo == arrival.routeNo && it.routeId == arrival.routeId}
-
+                                    var showMapDialog by remember { mutableStateOf(false) }
                                     Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(vertical = 4.dp),
                                         shape = MaterialTheme.shapes.medium,
-                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                                        onClick = {
+                                            // 구글 맵을 포함한 AlertDialog 표시
+                                            coroutineScope.launch {
+                                                try {
+                                                    val encodedKey = "cvmPJ15BcYEn%2FRGNukBqLTRlCXkpITZSc6bWE7tWXdBSgY%2FeN%2BvzxH%2FROLnXu%2BThzVwBc09xoXfTyckHj1IJdg%3D%3D"
+                                                    val apiKey = URLDecoder.decode(encodedKey, "UTF-8")
+
+                                                    val response = arrival.routeId?.let {
+                                                        BusApiClient.apiService.getBusRouteInfo(
+                                                            apiKey = apiKey,
+                                                            cityCode = cityCode,
+                                                            routeId = arrival.routeId!!
+                                                        )
+                                                    }
+
+                                                    if (response != null && response.isSuccessful) {
+                                                        val responseBody = response.body()
+
+                                                        // 디버깅 로그 추가
+                                                        Log.d("API Debug", "Response: $responseBody")
+
+                                                        if (responseBody?.body?.items?.itemList != null) {
+                                                            busStopList = responseBody.body?.items?.itemList?: emptyList()
+                                                            searchedCenter = LatLng(selectedBusStop!!.nodeLati!!,
+                                                                selectedBusStop!!.nodeLong!!
+                                                            )
+                                                            showMapDialog = true
+                                                        } else {
+                                                            Log.e("API Error", "Response body is null or empty")
+                                                        }
+                                                    } else {
+                                                        Log.e("API Error", "API 호출 실패: ${response?.code()}, ${response?.message()}, ${arrival.routeId!!}")
+                                                    }
+                                                } catch (e: Exception) {
+                                                    Log.e("API Error", "정류장 목록 로드 실패: ${e.message}")
+                                                }
+                                            }
+
+                                        }
                                     ) {
                                         Column(
                                             modifier = Modifier.padding(16.dp)
@@ -441,6 +483,29 @@ fun BusStopSearchScreen(
                                                 }
                                             }
                                         }
+                                    }
+                                    if (showMapDialog) {
+                                        AlertDialog(
+                                            onDismissRequest = { showMapDialog = false },
+                                            title = { Text(text = "버스 경로") },
+                                            text = {
+                                                searchedCenter?.let {
+                                                    GoogleMapRouteView(
+                                                        latitude = it.latitude,
+                                                        longitude = searchedCenter!!.longitude,
+                                                        busRouteList = busStopList,
+                                                        onClick = { /* 마커 클릭 이벤트 */ },
+                                                        onMapMoved = { /* 지도 이동 이벤트 */ },
+                                                        recenterTrigger = false
+                                                    )
+                                                }
+                                            },
+                                            confirmButton = {
+                                                Button(onClick = { showMapDialog = false }) {
+                                                    Text("닫기")
+                                                }
+                                            }
+                                        )
                                     }
                                 }
                             }
